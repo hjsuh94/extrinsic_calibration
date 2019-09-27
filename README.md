@@ -30,3 +30,11 @@ rostopic echo /camera/color/camera_info
 rosrun extrinsic_calibration calibration_pub.py
 ```
 
+# Results
+
+Results are printed in command line, but also saved the directory where the program is run. TODO: fix this! 
+Transformation given is FROM the camera optical frame TO the board frame. (i.e. what is the pose of my board frame seen from the camera frame?) 
+
+calibration_image.jpg  : Useful to see what the board frame actually is.  
+calibration_log.csv    : Log of 100 detected transforms. 
+calibration_result.csv : first 3 rows are rotation matrix, 
