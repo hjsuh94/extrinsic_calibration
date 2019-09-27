@@ -1,0 +1,157 @@
+#!/usr/bin/env python
+
+import rospy
+import cv2
+import os, sys, glob
+import numpy as np
+from std_msgs.msg import Float64MultiArray
+from sensor_msgs.msg import CameraInfo
+from sensor_msgs.msg import Image
+from cv_bridge import CvBridge, CvBridgeError
+
+class image_converter:
+    def __init__(self, image_topic, camera_info_topic):
+        self.image_sub = rospy.Subscriber(image_topic, Image, self.image_callback)
+        self.info_sub = rospy.Subscriber(camera_info_topic, CameraInfo, self.intrinsic_callback)
+        self.calib_pub = rospy.Publisher("calibration", Float64MultiArray, queue_size=10)
+        self.image_pub = rospy.Publisher("calibration_image", Image, queue_size=10)
+        self.bridge = CvBridge()
+        
+        self.camera_matrix = []
+        self.distortion = []
+        self.publish_image = 1
+        self.counter = 0
+        self.counter_max = 100
+        self.rvecs = np.zeros((self.counter_max, 3))
+        self.tvecs = np.zeros((self.counter_max, 3))
+
+        self.print_init()
+
+    def print_init(self):
+        print("===========================================================")
+        print("          Intel Realsense D415 External Calibration        ")
+        print("===========================================================")
+        print(" Warning:                                                  ")
+        print(" 1. If calibrating for any other camera, do not use this   ")
+        print("    program!                                               ")
+        print("                                                           ")
+        print(" 2. Start this program only after hardware is set up and   ")
+        print("    the board is visible and fixed from the camera view.   ")
+        print("===========================================================")
+
+    def draw(self, img, corners, imgpts):
+        corner = tuple(corners[0].ravel())
+        img = cv2.line(img, corner, tuple(imgpts[0].ravel()), (255,0,0), 5)
+        img = cv2.line(img, corner, tuple(imgpts[1].ravel()), (0,255,0), 5)
+        img = cv2.line(img, corner, tuple(imgpts[2].ravel()), (0,0,255), 5)
+        return img
+
+    def intrinsic_callback(self, data):
+        self.camera_matrix = np.reshape(np.array(data.K), (3,3))
+        self.distortion = np.reshape(np.array(data.D), (5,1))
+
+    def terminate_seq(self, cv_image, rvecs, tvecs):
+        print("===========================================================")
+        print "[NOTICE] Calibration Complete!"
+        cv2.imwrite("calibration_image.jpg", cv_image)
+        np.savetxt("calibration_log.csv", np.concatenate((rvecs, tvecs), 1), delimiter=",")
+        rvec_avg = np.reshape(np.average(rvecs, axis=0), (1,3))
+        rot_avg = cv2.Rodrigues(rvec_avg)[0]
+        tvec_avg = np.reshape(np.average(tvecs, axis=0), (1,3))
+        np.savetxt('calibration_result.csv', np.append(np.append(rot_avg, rvec_avg, 0), tvec_avg, 0),\
+                   delimiter=",")
+        print rot_avg
+        print("===========================================================")
+        print(" Calibraiton Results                                       ")
+        print("===========================================================")
+        print(" Average Rotation (Rodrigues, radians):                    ")
+        print " x: " + "{:.4f}".format(rvec_avg[0,0]) + \
+             "  y: " + "{:.4f}".format(rvec_avg[0,1]) + \
+             "  z: " + "{:.4f}".format(rvec_avg[0,2])
+        print("-----------------------------------------------------------")
+        print(" Average Rotation (Rotation Matrix):                       ")
+        print("[{:.4f}".format(rot_avg[0,0]) + "  {:.4f}".format(rot_avg[0,1]) + "  {:.4f}".format(rot_avg[0,2]))
+        print(" {:.4f}".format(rot_avg[1,0]) + "  {:.4f}".format(rot_avg[1,1]) + "  {:.4f}".format(rot_avg[1,2]))
+        print(" {:.4f}".format(rot_avg[2,0]) + "  {:.4f}".format(rot_avg[2,1]) + "  {:.4f}]".format(rot_avg[2,2]))
+        print("-----------------------------------------------------------")
+        print(" Average Translation                                       ")
+        print " x: " + "{:.4f}".format(tvec_avg[0,0]) + \
+             "  y: " + "{:.4f}".format(tvec_avg[0,1]) + \
+             "  z: " + "{:.4f}".format(tvec_avg[0,2])
+        print("-----------------------------------------------------------")
+        print(" Calibration log saved to calibration_log.csv              ")
+        print(" Calibration Image saved to calibration_image.jpg          ")
+        print(" Calibration result saved to calibration_result.csv        ")
+        exit()
+
+    def image_callback(self, data):
+        try:
+            cv_image = self.bridge.imgmsg_to_cv2(data, "passthrough")
+        except CvBridgeError as e:
+            print (e)
+            
+        if (self.camera_matrix != []) and (self.counter < self.counter_max): 
+            criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 30, 0.001)
+            objp = np.zeros((6*7,3), np.float32)
+            objp[:,:2] = np.mgrid[0:7,0:6].T.reshape(-1,2)
+
+            objpoints = []
+            imgpoints = []
+
+            gray = cv2.cvtColor(cv_image, cv2.COLOR_RGB2GRAY)
+            ret, corners = cv2.findChessboardCorners(gray, (7,6), None)
+
+            if ret == True:
+                print "[NOTICE] Checkerboard was found! Calibration: " + str(self.counter) +\
+                    " / " + str(self.counter_max)
+                objpoints.append(objp)
+
+                corners2 = cv2.cornerSubPix(gray, corners, (11,11), (-1,-1), criteria)
+                imgpoints.append(corners2)
+
+                checked_img = cv2.drawChessboardCorners(cv_image, (7,6), corners2, ret)
+
+                retval, rvecs, tvecs = cv2.solvePnP(np.array(objpoints),\
+                                                    np.array(corners2), \
+                                                    self.camera_matrix,\
+                                                    np.array([0,0,0,0], dtype=float))
+
+                rvecs = np.reshape(np.array(rvecs),(1,3))
+                tvecs = np.reshape(np.array(tvecs),(1,3))
+                
+
+                axis = np.float32([[3,0,0], [0,3,0], [0,0,-3]]).reshape(-1,3)
+                imgpts, jac = cv2.projectPoints(axis, rvecs, tvecs, \
+                                                self.camera_matrix, np.array([0,0,0,0], dtype=float))
+                final_img = self.draw(cv_image, corners2, imgpts)
+
+                try:
+                    self.image_pub.publish(self.bridge.cv2_to_imgmsg(final_img, "rgb8"))
+                except CvBridgeError as e:
+                    print (e)
+
+                self.rvecs[self.counter, :] = rvecs
+                self.tvecs[self.counter, :] = tvecs
+
+                q = cv2.Rodrigues(np.array(rvecs))[0]
+                t = np.reshape(tvecs, (1,3))[0]
+
+                self.counter = self.counter + 1
+
+                if (self.counter == 100):
+                    self.terminate_seq(final_img, self.rvecs, self.tvecs)
+
+
+def main(args):
+    ic = image_converter("camera/color/image_raw", "camera/color/camera_info")
+    rospy.init_node('calibration_node', anonymous=True)
+    try:
+        rospy.spin()
+    except KeyboardInterrupt:
+        print("shutting down")
+    cv2.destroyAllWindows()
+
+if __name__ == '__main__':
+    main(sys.argv)
+
+    
