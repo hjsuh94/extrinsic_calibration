@@ -41,9 +41,9 @@ class image_converter:
 
     def draw(self, img, corners, imgpts):
         corner = tuple(corners[0].ravel())
-        img = cv2.line(img, corner, tuple(imgpts[0].ravel()), (255,0,0), 5)
+        img = cv2.line(img, corner, tuple(imgpts[2].ravel()), (255,0,0), 5)
         img = cv2.line(img, corner, tuple(imgpts[1].ravel()), (0,255,0), 5)
-        img = cv2.line(img, corner, tuple(imgpts[2].ravel()), (0,0,255), 5)
+        img = cv2.line(img, corner, tuple(imgpts[0].ravel()), (0,0,255), 5)
         return img
 
     def intrinsic_callback(self, data):
@@ -120,7 +120,7 @@ class image_converter:
                 tvecs = np.reshape(np.array(tvecs),(1,3))
                 
 
-                axis = np.float32([[3,0,0], [0,3,0], [0,0,-3]]).reshape(-1,3) * 25.6
+                axis = np.float32([[3,0,0], [0,3,0], [0,0,3]]).reshape(-1,3) * 25.6
                 imgpts, jac = cv2.projectPoints(axis, rvecs, tvecs, \
                                                 self.camera_matrix, np.array([0,0,0,0], dtype=float))
                 final_img = self.draw(cv_image, corners2, imgpts)
