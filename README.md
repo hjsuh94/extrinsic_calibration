@@ -21,14 +21,22 @@ roslaunch realsense2_camera rs_camera.launch
 ```
 2. Make sure the camera topics are streaming by 
 ```bash
-rostopic echo /camera/color/camera_info
+rostopic echo /camera/color/camera_info 
 ```
 (this can also be checked in rviz) 
 
 3. Run the program  
 ```bash
-rosrun extrinsic_calibration calibration_pub.py
+rosrun extrinsic_calibration calibration.py 50
 ```
+where 50 is the number of frames to average from. 
+
+4. Publish transforms based on calibrated extrinsics 
+```bash
+rosrun extrinsic_calibration publish_calibration.py
+```
+
+to publish the transform between the camera frames and the board frame, and visualize the board frame in rviz. 
 
 # Results
 
